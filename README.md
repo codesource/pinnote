@@ -18,7 +18,7 @@ Claude Code ──► pinnote CLI ───────────────�
 ## Install
 
 1. `./install.sh`
-   registers the native host for Chrome/Chromium, links `pinnote` into `~/.local/bin` and the skill into `~/.claude/skills/pinnote`.
+   registers the native host for Chrome/Chromium, links `pinnote` into `~/.local/bin`, the skill into `~/.claude/skills/pinnote` and the worker agent into `~/.claude/agents/`.
 2. `chrome://extensions` → enable Developer mode → **Load unpacked** → this repo's `extension/` folder.
 3. Open your dev site, click the Pinnote icon, enter the project folder, **Link this site**. Chrome asks to let Pinnote run on that site only.
 
@@ -41,8 +41,10 @@ On the page:
 
 In the project folder:
 
-- `/pinnote`: work through all open notes now.
-- `/pinnote watch`: keep watching and handle each note as you pin it.
+- `/pinnote`: work through all open notes now, in the session (cheapest for a few notes: files are read once).
+- `/pinnote watch`: keep watching and handle each note as you pin it. The session only dispatches: a background `pinnote watch --once` costs nothing while you are not pinning, and each note goes to the `pinnote-worker` agent with a fresh context, so the cost per note stays flat however long the sitting is.
+
+The worker agent can only read, search and edit files and run `pinnote`: a guard hook (`pinnote guard-bash`) rejects every other shell command, chaining, pipes and command substitution, so it cannot commit, push or reach the network.
 
 The skill uses the CLI, which you can use too:
 
@@ -53,6 +55,7 @@ pinnote show 12                   details: target, styles, rules, screenshot pat
 pinnote reply 12 "Done in ..."    answer and mark done
 pinnote reply 12 --question "..." ask instead
 pinnote watch                     one line per new or reopened note
+pinnote watch --once              wait until notes wait for Claude, list them, exit
 pinnote projects                  linked projects and counts
 pinnote link URL [DIR]            link a site prefix to a project folder
 pinnote unlink URL

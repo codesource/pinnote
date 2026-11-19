@@ -15,7 +15,7 @@ Run them in the project folder, or add `-C <dir>`.
 - `pinnote show <id> [<id>...]`: everything about a note: target, styles, matching rules, screenshot path, thread.
 - `pinnote reply <id> "<text>"`: answer and mark the note done; the user then reviews it.
 - `pinnote reply <id> --question "<text>"`: ask the user instead, when the note is ambiguous or needs a decision.
-- `pinnote watch`: prints one line per new or reopened note; used with Monitor.
+- `pinnote watch --once`: waits until notes wait for Claude, lists them and exits; used by watch mode.
 - `pinnote projects`, `pinnote link <url> [dir]`: overview and setup.
 
 If `pinnote list` says the folder is not linked, tell the user to link the site from the Pinnote toolbar popup, or offer to run `pinnote link <dev-site-url> <project-root>`.
@@ -38,12 +38,19 @@ Do not commit; the user's usual commit rules apply.
 
 ## `/pinnote` (batch)
 
-Run `pinnote list`, then work every open note in id order. When several notes touch the same rule, handle them together and reply to each one. End with a short summary in chat: which notes are done, which have a question.
+Run `pinnote list`, then work every open note in id order, here in this session: for a few notes, shared context is the cheapest option (files read once, follow-ups understood). When several notes touch the same rule, handle them together and reply to each one. End with a short summary in chat: which notes are done, which have a question.
+
+If more than about five notes are open, or this session is already long, hand each note to the `pinnote-worker` agent instead, as in watch mode, so the session does not grow with every note.
 
 ## `/pinnote watch` (live)
 
-1. Work the notes that are already open, as in batch mode.
-2. Start a Monitor with command `pinnote watch -C <project-root>`, description `new Pinnote notes in <project>`, and timeout_ms 1800000 (the maximum). Each output line is a note to work, for example `#12   open      /checkout   .cart > .total  "make it bold"`.
-3. Work each note as it arrives; several can arrive in one event.
-4. When the monitor expires, re-arm it with the same command unless the user said to stop. A line starting with `pinnote watch error:` means something is broken: tell the user.
-5. Say once that watch mode is on and that "stop watching" ends it.
+In watch mode this session only dispatches: notes are worked by the `pinnote-worker` agent, one fresh context per note, and this session keeps one line per note. That keeps the cost per note flat however long the sitting is, and the wait costs nothing.
+
+1. Start `pinnote watch --once -C <project-root>` with the Bash tool and `run_in_background: true`. It costs nothing while no note waits. As soon as notes wait for Claude it prints one line per note (notes already open included) and exits, which wakes you.
+2. For each listed note, in id order and one at a time (two workers editing the same file would conflict), start the `pinnote-worker` agent with a prompt such as: `Note #12 in /path/to/project. Recent changes: #11 done: _card.scss:14 padding 12px to 16px.` Pass the last few result lines of this sitting, or `none`. Wait for each worker before starting the next.
+3. Keep only the worker's one-line result. Do not run `pinnote show` or read project files yourself in watch mode; that is what keeps this session small.
+4. If a worker's line is not `#<id> done: ...` or `#<id> question: ...`, run `pinnote list -C <project-root>`. If the note is still open, answer it yourself with `pinnote reply <id> --question "<what went wrong>"`, so it is not picked up again in a loop.
+5. Start step 1 again. If it exits with no note lines, just restart it. If it prints `pinnote watch error:` twice in a row, stop and tell the user.
+6. In chat, write one short line per note handled, nothing more. Say once that watch mode is on and that "stop watching" ends it; when the user says so, stop the background command.
+
+If the `pinnote-worker` agent is not available (not installed, or this session started before it was installed), say so, suggest running `install.sh` and starting a new session, and meanwhile work the notes in this session with the same loop.

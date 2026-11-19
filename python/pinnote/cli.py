@@ -14,7 +14,7 @@ import time
 from datetime import datetime
 from urllib.parse import urlsplit
 
-from . import VERSION, store
+from . import VERSION, guard, store
 from .store import PinnoteError
 
 STATUS_LABEL = {"open": "open", "question": "question", "done": "done", "resolved": "resolved"}
@@ -233,8 +233,16 @@ def cmd_reply(args) -> int:
     return 0
 
 
+def waiting_for_claude(note: dict) -> bool:
+    # Claude's replies always set done or question, so "open" means it is Claude's turn,
+    # including a note reopened from the page without a new message.
+    return note.get("status") == "open"
+
+
 def cmd_watch(args) -> int:
     project = find_project(args)
+    if args.once:
+        return watch_once(project, args)
     print(f"watching {project.name} ({project.root}) for open notes", flush=True)
     seen: dict[int, tuple] = {}
     last_etag = None
@@ -244,22 +252,45 @@ def cmd_watch(args) -> int:
             etag = project.etag()
             if etag != last_etag:
                 last_etag = etag
-                notes = project.notes()
                 current = {}
-                for note in notes:
+                for note in project.notes():
                     signature = (note.get("status"), len(note.get("thread") or []))
                     current[note["id"]] = signature
-                    if note.get("status") != "open" or seen.get(note["id"]) == signature:
+                    if not waiting_for_claude(note) or seen.get(note["id"]) == signature:
                         continue
                     if first and not args.existing:
                         continue
-                    if store.last_message(note).get("author") == "user":
-                        print(fmt_list_line(note), flush=True)
+                    print(fmt_list_line(note), flush=True)
                 seen = current
                 first = False
         except Exception as exc:  # noqa: BLE001 - keep watching, but say so
             print(f"pinnote watch error: {exc}", flush=True)
         time.sleep(args.interval)
+
+
+def watch_once(project: store.Project, args) -> int:
+    """Wait until at least one note waits for Claude, print all of them, exit.
+
+    Notes already open count too: whoever runs this handles every listed note
+    before starting it again, so nothing pinned in between can be missed.
+    """
+    deadline = time.monotonic() + args.timeout if args.timeout else None
+    last_etag = None
+    while deadline is None or time.monotonic() < deadline:
+        try:
+            etag = project.etag()
+            if etag != last_etag:
+                last_etag = etag
+                waiting = [n for n in project.notes() if waiting_for_claude(n)]
+                if waiting:
+                    for note in waiting:
+                        print(fmt_list_line(note), flush=True)
+                    return 0
+        except Exception as exc:  # noqa: BLE001 - wake the caller instead of spinning
+            print(f"pinnote watch error: {exc}", flush=True)
+            return 1
+        time.sleep(args.interval)
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -303,8 +334,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = with_project(sub.add_parser("watch", help="print a line for each new or reopened note"))
     p.add_argument("--existing", action="store_true", help="also print notes already open")
+    p.add_argument("--once", action="store_true",
+                   help="exit as soon as notes wait for Claude, after listing all of them")
+    p.add_argument("--timeout", type=float, default=0,
+                   help="with --once: give up after this many seconds, printing nothing (default: never)")
     p.add_argument("--interval", type=float, default=1.0, help="seconds between checks")
     p.set_defaults(func=cmd_watch)
+
+    p = sub.add_parser("guard-bash", help="PreToolUse hook of the pinnote-worker agent (reads the hook JSON on stdin)")
+    p.set_defaults(func=lambda _args: guard.main())
     return parser
 
 

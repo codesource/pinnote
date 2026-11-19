@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install (or remove with --uninstall) the Pinnote native host, the `pinnote`
-# command and the Claude Code skill for the current user. The Chrome extension
+# command, the Claude Code skill and the pinnote-worker agent for the current user. The Chrome extension
 # itself is loaded once by hand: chrome://extensions > Developer mode >
 # Load unpacked > <this repo>/extension
 set -euo pipefail
@@ -11,6 +11,7 @@ HOST_BIN="$ROOT/python/bin/pinnote-host"
 CLI_BIN="$ROOT/python/bin/pinnote"
 CLI_LINK="$HOME/.local/bin/pinnote"
 SKILL_LINK="$HOME/.claude/skills/pinnote"
+AGENT_LINK="$HOME/.claude/agents/pinnote-worker.md"
 BROWSER_DIRS=(
   "$HOME/.config/google-chrome"
   "$HOME/.config/google-chrome-beta"
@@ -46,6 +47,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   done
   remove_link "$CLI_LINK"
   remove_link "$SKILL_LINK"
+  remove_link "$AGENT_LINK"
   echo "Notes in your projects (.pinnote/) and ~/.config/pinnote are kept."
   exit 0
 fi
@@ -79,7 +81,7 @@ if [[ $installed -eq 0 ]]; then
   exit 1
 fi
 
-mkdir -p "$(dirname "$CLI_LINK")" "$(dirname "$SKILL_LINK")"
+mkdir -p "$(dirname "$CLI_LINK")" "$(dirname "$SKILL_LINK")" "$(dirname "$AGENT_LINK")"
 ln -sfn "$CLI_BIN" "$CLI_LINK"
 echo "command: $CLI_LINK"
 if [[ -e "$SKILL_LINK" && ! -L "$SKILL_LINK" ]]; then
@@ -87,6 +89,12 @@ if [[ -e "$SKILL_LINK" && ! -L "$SKILL_LINK" ]]; then
 else
   ln -sfn "$ROOT/skill" "$SKILL_LINK"
   echo "Claude Code skill: $SKILL_LINK"
+fi
+if [[ -e "$AGENT_LINK" && ! -L "$AGENT_LINK" ]]; then
+  echo "skipped the agent: $AGENT_LINK exists and is not a symlink" >&2
+else
+  ln -sfn "$ROOT/agents/pinnote-worker.md" "$AGENT_LINK"
+  echo "Claude Code agent: $AGENT_LINK (new sessions pick it up)"
 fi
 
 cat <<EOF

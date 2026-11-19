@@ -99,7 +99,15 @@ const chrome = spawn("google-chrome", [
   "--headless=new", `--user-data-dir=${profile}`, "--remote-debugging-pipe",
   "--enable-unsafe-extension-debugging", "--no-first-run", "--no-default-browser-check",
   "--window-size=1280,800", "about:blank",
-], { env, stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] });
+], { env, stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"], detached: true }); // own process group
+const killChrome = (signal) => {
+  try {
+    process.kill(-chrome.pid, signal); // the whole group: helper processes write to the profile too
+  } catch {
+    // already gone
+  }
+};
+process.on("exit", () => killChrome("SIGKILL"));
 let chromeErr = "";
 chrome.stderr.on("data", (d) => (chromeErr += d));
 
@@ -297,11 +305,19 @@ try {
   const relevant = errors.filter((e) => !String(JSON.stringify(e)).includes("favicon"));
   check(relevant.length === 0, `no page or worker errors${relevant.length ? `: ${JSON.stringify(relevant).slice(0, 800)}` : ""}`);
   const exited = new Promise((r) => chrome.once("exit", r));
-  chrome.kill();
+  killChrome("SIGTERM");
   await Promise.race([exited, sleep(5000)]);
+  killChrome("SIGKILL");
+  await sleep(300);
   server.close();
   server2.close();
-  if (!keep) fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  if (!keep) {
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+    } catch (err) {
+      console.log(`warning: could not remove ${tmp}: ${err.code || err.message}`);
+    }
+  }
   if (failures && chromeErr) console.log(chromeErr.split("\n").slice(-15).join("\n"));
   console.log(failures ? `${failures} failure(s)` : "all good");
   process.exit(failures ? 1 : 0);

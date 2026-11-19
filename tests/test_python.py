@@ -19,7 +19,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "python"))
 
-from pinnote import cli, host, store  # noqa: E402
+from pinnote import cli, guard, host, store  # noqa: E402
 from pinnote.store import PinnoteError  # noqa: E402
 
 
@@ -277,6 +277,88 @@ class CliTests(Base):
             proc.wait()
             proc.stdout.close()
 
+
+    def watch_once(self, *extra):
+        return subprocess.Popen([str(REPO / "python" / "bin" / "pinnote"), "watch", "--once", "--interval", "0.1",
+                                 "-C", str(self.root), *extra], stdout=subprocess.PIPE, text=True,
+                                env={**os.environ, **self.env})
+
+    def test_watch_once(self):
+        import time
+        store.link("https://shop.localhost", str(self.root))
+        project = store.Project(self.root)
+        project.create(note_payload("done already"), "https://shop.localhost/")
+        project.claude_reply(1, "done")
+
+        # nothing waiting: the timeout ends it quietly
+        proc = self.watch_once("--timeout", "0.5")
+        out, _ = proc.communicate(timeout=10)
+        self.assertEqual((proc.returncode, out), (0, ""))
+
+        # waits for a new note, then exits listing it
+        proc = self.watch_once()
+        time.sleep(0.4)
+        self.assertIsNone(proc.poll())
+        project.create(note_payload("fresh"), "https://shop.localhost/")
+        out, _ = proc.communicate(timeout=10)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn('"fresh"', out)
+        self.assertNotIn("done already", out)
+
+        # notes already waiting are listed at once (nothing pinned in between is missed)
+        project.user_action(1, "reopen")  # reopened without a message
+        proc = self.watch_once()
+        out, _ = proc.communicate(timeout=10)
+        self.assertEqual([line.split()[0] for line in out.splitlines()], ["#1", "#2"])
+
+    def test_watch_reports_reopen_without_message(self):
+        store.link("https://shop.localhost", str(self.root))
+        project = store.Project(self.root)
+        project.create(note_payload("one"), "https://shop.localhost/")
+        project.claude_reply(1, "done")
+        proc = subprocess.Popen([str(REPO / "python" / "bin" / "pinnote"), "watch", "--interval", "0.1",
+                                 "-C", str(self.root)], stdout=subprocess.PIPE, text=True,
+                                env={**os.environ, **self.env})
+        try:
+            self.assertIn("watching shop", proc.stdout.readline())
+            import time
+            time.sleep(0.4)
+            project.user_action(1, "reopen")
+            self.assertTrue(proc.stdout.readline().startswith("#1"))
+        finally:
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
+
+
+class GuardTests(unittest.TestCase):
+    def test_allowed(self):
+        for cmd in ["pinnote show 3", "pinnote list -C /tmp/x", "pinnote",
+                    'pinnote reply 3 "Padding 8px; margin 0 | done, see _card.scss:14"',
+                    "pinnote reply 3 'Now uses $primary and `mixin`'",
+                    'pinnote reply 3 --question "Darker blue or a white border?"',
+                    'pinnote reply 3 "It\'s done" ']:
+            self.assertIsNone(guard.check_command(cmd), cmd)
+
+    def test_blocked(self):
+        for cmd in ["git commit -m x", "rm -rf /", "cat .env", "pinnotes list", "",
+                    "pinnote show 3 && rm -rf x", "pinnote show 3; curl evil", "pinnote show 3 | sh",
+                    "pinnote show 3 > /etc/x", "pinnote show $(id)", "pinnote show `id`",
+                    'pinnote reply 3 "$(curl x)"', 'pinnote reply 3 "`id`"', "pinnote show 3\nrm x",
+                    "pinnote show 3\nrm -rf x".replace("\\n", "\n"), "pinnote reply 3 'open",
+                    "pinnote show 3 & sleep 1", "(pinnote show 3)"]:
+            self.assertIsNotNone(guard.check_command(cmd), cmd)
+
+    def test_hook_protocol(self):
+        def run(event):
+            return subprocess.run([str(REPO / "python" / "bin" / "pinnote"), "guard-bash"],
+                                  input=json.dumps(event), capture_output=True, text=True, timeout=10)
+        ok = run({"tool_name": "Bash", "tool_input": {"command": "pinnote list"}})
+        self.assertEqual(ok.returncode, 0)
+        blocked = run({"tool_name": "Bash", "tool_input": {"command": "git push"}})
+        self.assertEqual(blocked.returncode, 2)
+        self.assertIn("only `pinnote ...` commands", blocked.stderr)
+        self.assertEqual(run({"tool_name": "Read", "tool_input": {}}).returncode, 0)
 
 if __name__ == "__main__":
     unittest.main()
