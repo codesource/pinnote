@@ -1,0 +1,10 @@
+#!/usr/bin/python3 -I
+"""Pinnote native messaging host, started by Chrome for the Pinnote extension."""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+
+from pinnote.host import main  # noqa: E402
+
+sys.exit(main())

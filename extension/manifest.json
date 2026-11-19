@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Pinnote",
+  "version": "0.1.0",
+  "description": "Pin notes on elements of your dev sites. Claude Code picks them up from the project folder and answers on the page.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuHDjFu8zwBEqRDEApgs8MmHmhHRi0mZZQCuhTLU+kGP+YF0eyMFkdTOUPs+mZYwrQRGND6S9Jf7tJ9FGGbuvyCvJLik5cHHZ2feb88SZeghzlRfBoTQxARS0iVJRIx/M5IY90pnvPqw+xn99QCYsTQJmHIEInMyd4XtT3OvFT/mwGA7h2QbCX9PNI2mi8ElijPzKrWyjlzBopDN4yND2ure2N3XPIuXK0KND9SH8f0uU6JFS1AvVt5RFpI75kW72iNQofezyF4GUImWBWN1HQHy6ID9NWky5K7/a8tUQ/aPg2QcAvV8UgS0sYIxGA9NLQVzhrlolx+M0akPk37UJ2QIDAQAB",
+  "minimum_chrome_version": "127",
+  "permissions": [
+    "activeTab",
+    "alarms",
+    "contextMenus",
+    "nativeMessaging",
+    "notifications",
+    "scripting",
+    "storage"
+  ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "sw.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Pinnote",
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png"
+    }
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "commands": {
+    "pick": {
+      "suggested_key": { "default": "Alt+Shift+N" },
+      "description": "Pin a note: click an element or drag an area"
+    }
+  }
+}
