@@ -75,3 +75,7 @@ pinnote unlink URL
 ## Uninstall
 
 `./install.sh --uninstall`, then remove the extension in `chrome://extensions`. Notes in your projects and the registry are kept.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
